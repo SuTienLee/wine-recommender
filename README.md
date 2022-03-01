@@ -8,3 +8,6 @@ With the wine datasets from Kaggle, we built the application consisting of three
 
 
 We hope to enhance customers’ experience when they choose wines by building our application in a way that is informative, interactive, and supportive.
+
+A look of the app interface:
+![image](https://user-images.githubusercontent.com/98716182/156211412-db1b60f7-ea9e-4ea5-a7b0-b7b1aa6b7e97.png)
