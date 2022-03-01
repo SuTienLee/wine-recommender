@@ -1,0 +1,482 @@
+## Loading libraries
+library(shinydashboard)
+library(dqshiny)
+library(shiny)
+library(dplyr)
+library(ggplot2)
+library(ROI)
+library(ROI.plugin.glpk)
+library(ompr)
+library(ompr.roi)
+library(Rcpp)
+library(shinybusy)
+library(DT)
+library(hrbrthemes)
+library(viridis)
+library(plotly)
+
+
+## Setting working directory
+getwd()
+setwd("C:\\Users\\susan\\OneDrive\\桌面\\Purdue Documents\\Courses & Enrollment\\3. SM2 - MGMT 59000 - Using R for Analytics\\Final project")
+
+## Loading each dataset and combine them into a one dataset
+red <- read.csv(file='Red.csv', header=T, sep=',')
+rose <- read.csv(file='Rose.csv', header=T, sep=',')
+sparkling <- read.csv(file='Sparkling.csv', header=T, sep=',')
+varieties <- read.csv(file='Varieties.csv', header=T, sep=',')
+white <- read.csv(file='White.csv', header=T, sep=',')
+
+red$Type <- "Red"
+rose$Type <- "Rose"
+sparkling$Type <- "Sparkling"
+white$Type <- "White"
+
+wine <- rbind(red, rose, sparkling, white)
+
+## Making new dataset for autocomplete text input
+wine$NumberOfRatings <- as.integer(wine$NumberOfRatings)
+names(wine)[7] <- "Price"
+
+wine <- wine %>%
+  mutate(name_winery_region = paste0(wine[,'Name'],sep=" - ",wine[,'Winery'],sep=', ',wine[,'Region']))
+
+head(wine, 2)
+
+wine_avg_rating <- summarise(group_by(wine,Type),'Avg.Rating' = mean(Rating,na.rm=TRUE))
+wine_avg_price<- summarise(group_by(wine,Type),'Avg.Price' = mean(Price,na.rm=TRUE))
+
+summarize(group_by(Year), 'avg_rating' <- mean(Rating), 'Type' == 'White')
+
+wine %>% 
+  filter(Type == 'White' & Country == 'United States') %>% 
+  group_by(Year) %>% 
+  summarize(avg_rating = mean(Rating))
+
+summarize(group_by(filter(wine, Type == 'White' & Country == 'United States'), Year), avg_rating = mean(Rating))
+
+wine_1 <- wine %>%
+  group_by(Year, Type) %>%
+  summarize(avg_price = mean(Price),
+            avg_rating = mean(Rating))
+
+## APP CODE 
+## Loading libraries
+library(shinythemes)
+library(shinydashboard)
+library(dqshiny)
+library(leaflet)
+library(shiny)
+
+# UI part
+ui <- dashboardPage(
+  skin = "blue",
+  # Header
+  dashboardHeader(title = "Wine Recommender"),
+  # Sidebar
+  dashboardSidebar(
+    sidebarMenu(
+      menuItem("Description", tabName = "description"),
+      menuItem("EDA", tabName = 'eda'),
+      menuItem("Search Wine", tabName = 'searchwine')
+    )
+  ),
+  # Body
+  dashboardBody(
+    tabItems(
+      # Description tab
+      tabItem(tabName = "description",
+              h2("Welcome! - We currently have information of 13,834 wines!"),
+              autocomplete_input(id = "des_name_search",
+                                 label = h3("Search Wine Name"),
+                                 max_options = 100,
+                                 wine$name_winery_region
+              ),
+              p(),
+              fluidRow(
+                # Description tab - Wine Summary box
+                box(
+                  title = "Wine description", status = "primary", 
+                  solidHeader = TRUE, width = 12,
+                  collapsible = TRUE,
+                  fluidRow(
+                    valueBoxOutput("country_box", width = 4),
+                    valueBoxOutput("region_box", width = 4),
+                    valueBoxOutput("winery_box", width = 4),
+                    valueBoxOutput("type_box", width = 3),
+                    valueBoxOutput("rating_box", width = 3),
+                    valueBoxOutput("price_box", width = 3),
+                    valueBoxOutput("year_box", width = 3)
+                  )
+                ),
+                # Description tab - Price range box
+                box(
+                  title = "Price Range of all types by country", status = "primary",
+                  solidHeader = TRUE, width = 6,
+                  collapsible = TRUE,
+                  plotOutput("price_range", height = 250),
+                  sliderInput(inputId="price_range2",
+                              label = "Choose price range! (Max=3410.79)",
+                              min = 1, max = max(wine$Price), 
+                              value = c(50, 150))
+                ),
+                # Description tab - Rating range box
+                box(
+                  title = "Rating range of all types by country", status = "primary", 
+                  solidHeader = TRUE, width = 6,
+                  collapsible = TRUE,
+                  plotOutput("rating_range", height = 250),
+                  sliderInput(inputId="rating_range2",
+                              label = "Choose rating range! (Max=5)",
+                              min = 1, max = 5,
+                              value = c(3, 5))
+                )
+              )
+      ),
+      # EDA tab
+      tabItem(tabName = "eda",
+              h2("EDA"),
+              fluidRow(
+                # EDA tab - 1. Avg. Rating by Wine Type box
+                box(
+                  title = "Avg. Rating by Wine Type", status = "success",
+                  solidHeader = TRUE, width = 6,
+                  collapsible = TRUE,
+                  plotOutput('eda_bar1', height = "250px")
+                ),
+                # EDA tab - 2. Avg. Price by Wine Type box
+                box(
+                  title = "Avg. Price by Wine Type", status = "success",
+                  solidHeader = TRUE, width = 6,
+                  collapsible = TRUE,
+                  plotOutput('eda_bar2', height = "250px")
+                ),
+                # EDA tab - 3/4. Avg. Price and Rating by Country box
+                box(
+                  title = "Avg. Rating and Price by country", status = "success",
+                  solidHeader = TRUE, width = 12, height="420px",
+                  collapsible = TRUE,
+                  autocomplete_input(id = "eda_coun_search",
+                                     label = "Type Country",
+                                     max_options = 10,
+                                     unique(wine$Country)),
+                  
+                  actionButton(inputId = "countrygo", label = "Show"),
+                  fluidRow(
+                    column(6,
+                           plotOutput(outputId = "eda_bar3", height="250px")),
+                    column(6,
+                           plotOutput(outputId = "eda_bar4", height="250px")
+                    )
+                  )
+                ),
+                # EDA tab - 5. Relationship between Rating and Price box
+                box(
+                  title = "Relationship between Rating and Price", status = "success",
+                  solidHeader = TRUE, width = 6,
+                  collapsible = TRUE,
+                  plotOutput('eda_scat5'),
+                  sliderInput(inputId="price_range3",
+                              label = "Choose price range! (max=3410.79)",
+                              min = 1, max = max(wine$Price), 
+                              value = c(50, 500)),
+                  sliderInput(inputId="rating_range3",
+                              label = "Choose rating range! (Max=5)",
+                              min = 1, max = 5, 
+                              value = c(3, 5))
+                ),
+                # EDA tab - 6. Relationship between Rating and Number of Ratings box
+                box(
+                  title = "Relationship between Rating and Number of Ratings", status = "success",
+                  solidHeader = TRUE, width = 6,
+                  collapsible = TRUE,
+                  plotOutput('eda_scat6'),
+                  sliderInput(inputId="rating_range4",
+                              label = "Choose rating range! (max=5)",
+                              min = 1, max = 5, 
+                              value = c(3, 5)),
+                  sliderInput(inputId="num_rating",
+                              label = "Choose numbers of rating range! (Max=94,287)",
+                              min = 1, max = max(wine$NumberOfRatings), 
+                              value = c(25, 30000)),
+                ),
+                # EDA tab - 7/8. Top 10 Countries by Rating and Price
+                box(
+                  title = "Top 10 Countries by Rating and Price", status = "success",
+                  solidHeader = TRUE, width = 12, height="420px",
+                  collapsible = TRUE,
+                  autocomplete_input(id = "search_type",
+                                     label = "Choose a wine type",
+                                     max_options = 10,
+                                     unique(wine$Type)),
+                  actionButton(inputId = "typego", label = "Show"),
+                  fluidRow(
+                    column(6,
+                           plotOutput(outputId = "type_rating", height="250px")),
+                    column(6,
+                           plotOutput(outputId = "type_price", height="250px")
+                    )
+                  )
+                ),
+                # EDA tab - 9. Relationship between Average ratings by Year filtered by Country
+                box(
+                  title = "Relationship between Average ratings by Year filtered by Country", status = "success",
+                  solidHeader = TRUE, width = 6,
+                  collapsible = TRUE,
+                  plotOutput('graph_9'),
+                  autocomplete_input(id = "search_country_9",
+                                     label = "Type Country",
+                                     max_options = 10,
+                                     unique(wine$Country)),
+                  
+                  checkboxGroupInput("Wine_Type1", "Wine Type",
+                                     c("Red" = "Red",
+                                       "White" = "White",
+                                       "Sparkling"="Sparkling",
+                                       "Rose" = "Rose"
+                                     )
+                  )
+                ),
+                # EDA tab - 10. Relationship between Average Price by Year filtered by Wine Type
+                box(
+                  title = "Relationship between Average Price by Year filtered by Wine Type", status = "success",
+                  solidHeader = TRUE, width = 6,
+                  collapsible = TRUE,
+                  plotOutput('graph_10'),
+                  checkboxGroupInput("Wine_Type2", "Wine Type",
+                                     c("Red" = "Red",
+                                       "White" = "White",
+                                       "Sparkling"="Sparkling",
+                                       "Rose" = "Rose"
+                                     )
+                  )
+                )
+              )
+      ),
+      
+      # UI Search Wine tab
+      tabItem(tabName = "searchwine",
+              h2("Let's search your wine!"),
+              # fluidRow(
+              #   box(title = "1. Budget", status = "success",
+              #       solidHeader = TRUE, width = 6,
+              #       sliderInput(inputId = "budget",
+              #             label = "Choose your budget",
+              #             min = 10, max = 500, value = 250)
+              #       ),
+              #   box(title = "2. Number of wines", status = "success",
+              #       solidHeader = TRUE, width = 6,
+              #       sliderInput(inputId = "num_wine",
+              #             label = "Choose number of wines",
+              #             min = 1, max = 10, value = 3)
+              #   )
+              # )
+              column(5,
+                     wellPanel(
+                       sliderInput(inputId = "budget",
+                                   label = "Choose your budget",
+                                   min = 10, max = 500, value = 250)
+                       ,
+                       sliderInput(inputId = "num_wine",
+                                   label = "Choose number of wines",
+                                   min = 1, max = 10, value = 3)
+                     )),
+              column(7,
+                     wellPanel("Result"))
+      )
+    ),
+    
+    tags$head(tags$style(HTML('
+                              .main-header .logo {
+                              font-family: "Georgia", Times, "Times New Roman", serif;
+                              font-weight: bold;
+                              font-size: 18px;
+                              }
+                              ')))
+  )
+)
+
+
+server <- function(input, output) {
+  
+  wine_coun <- reactive({
+    wine[wine$name_winery_region == input$des_name_search, 'Country']
+  })
+  
+  wine_reg <- reactive({
+    wine[wine$name_winery_region == input$des_name_search, 'Region']
+  })
+  
+  wine_win <- reactive({
+    wine[wine$name_winery_region == input$des_name_search, 'Winery']
+  })
+  
+  wine_typ <- reactive({
+    wine[wine$name_winery_region == input$des_name_search, 'Type']
+  })
+  
+  wine_rat <- reactive({
+    wine[wine$name_winery_region == input$des_name_search, 'Rating']
+  })
+  
+  wine_pri <- reactive({
+    wine[wine$name_winery_region == input$des_name_search, 'Price']
+  })
+  
+  wine_year <- reactive({
+    wine[wine$name_winery_region == input$des_name_search, 'Year']
+  })
+  
+  # Description part - 7 wine description box outputs
+  output$country_box <- renderValueBox({
+    valueBox(
+      value = wine_coun(), 
+      subtitle = "Country", 
+      color = "light-blue"
+    )
+  })
+  output$region_box <- renderValueBox({
+    valueBox(
+      value = wine_reg(), 
+      subtitle = "Region", 
+      color = "light-blue"
+    )
+  })
+  output$winery_box <- renderValueBox({
+    valueBox(
+      value = wine_win(), 
+      subtitle = "Winery", 
+      color = "light-blue"
+    )
+  })
+  output$type_box <- renderValueBox({
+    valueBox(
+      value = wine_typ(), 
+      subtitle = "Type", 
+      color = "light-blue"
+    )
+  })
+  output$rating_box <- renderValueBox({
+    valueBox(
+      value = wine_rat(), 
+      subtitle = "Rating", 
+      color = "light-blue"
+    )
+  })
+  output$price_box <- renderValueBox({
+    valueBox(
+      value = wine_pri(), 
+      subtitle = c("Price (USD)"), 
+      color = "light-blue"
+    )
+  })
+  output$year_box <- renderValueBox({
+    valueBox(
+      value = wine_year(),
+      subtitle = "Produced Year", 
+      color = "light-blue"
+    )
+  })
+  
+  # Description tab - 2 wine description plots
+  output$price_range <- renderPlot({
+    price_coun <- wine[wine$Country ==wine_coun(), c("Price", "Type")]
+    ggplot(price_coun, aes(x=Type, y=Price, fill=Type)) + geom_boxplot() +
+      ylim(input$price_range2) +
+      labs(x = "Type of wine", y = "Price(USD)")
+  })
+  output$rating_range <- renderPlot({
+    price_rat <- wine[wine$Country==wine_coun(), c("Rating", "Type")]
+    ggplot(price_rat, aes(x=Type, y=Rating, fill=Type)) + geom_boxplot() +
+      ylim(input$rating_range2) +
+      labs(x = "Type of wine", y = "Rating")
+  })
+  
+  # EDA tab - graphs 1
+  output$eda_bar1 <- renderPlot({
+    wine_avg_rating <- summarise(group_by(wine,Type),'Avg.Rating' = mean(Rating,na.rm=TRUE))
+    ggplot(wine_avg_rating,aes(x=Type,y=Avg.Rating, fill=Type)) +
+      geom_bar(stat = 'identity')
+  })
+  # EDA tab - graphs 2
+  output$eda_bar2 <- renderPlot({
+    wine_avg_price<- summarise(group_by(wine,Type),'Avg.Price' = mean(Price,na.rm=TRUE))
+    ggplot(wine_avg_price,aes(x=Type,y=Avg.Price, fill=Type)) +
+      geom_bar(stat = 'identity')
+  })
+  # EDA tab - graphs 3
+  box3_rating <- eventReactive(input$countrygo,{
+    aggregate(Rating ~ Type, 
+              data = filter(wine, Country == input$eda_coun_search), 
+              FUN = mean)})
+  output$eda_bar3 <- renderPlot({
+    ggplot(data = box3_rating(), aes(x = Type,y = Rating, fill=Type)) +
+      geom_bar(stat = 'identity')
+  })
+  # EDA tab - graphs 4
+  box3_price <- eventReactive(input$countrygo,{
+    aggregate(Price ~ Type, 
+              data = filter(wine, Country == input$eda_coun_search), 
+              FUN = mean)})
+  output$eda_bar4 <- renderPlot({
+    ggplot(data = box3_price(), aes(x = Type,y = Price, fill=Type)) +
+      geom_bar(stat = 'identity')
+  })
+  # EDA tab - graphs 5
+  output$eda_scat5 <- renderPlot({
+    ggplot(wine, aes(Rating,Price, color=Type)) + geom_point() +
+      xlim(input$rating_range3) +
+      ylim(input$price_range3)
+  })
+  # EDA tab - graphs 6
+  output$eda_scat6 <- renderPlot({
+    ggplot(wine, aes(Rating,NumberOfRatings, color=Type)) + geom_point() +
+      xlim(input$rating_range4) +
+      ylim(input$num_rating)
+  })
+  # EDA tab - graphs 7
+  EDA7 <- eventReactive(input$typego, {
+    aggregate(Rating ~ Country, data = filter(wine, Type == input$search_type), FUN = mean) %>%
+      arrange(desc(Rating)) })
+  output$type_rating <- renderPlot({
+    ggplot(EDA7()[1:10,], aes(x = reorder(Country,-Rating), y = Rating, fill = Country))+
+      geom_bar(stat = 'identity')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  })
+  # EDA tab - graphs 8
+  EDA8 <- eventReactive(input$typego, {
+    aggregate(Price ~ Country, data = filter(wine, Type == input$search_type), FUN = mean) %>%
+      arrange(desc(Price))})
+  output$type_price <- renderPlot({
+    ggplot(EDA8()[1:10,], aes(x = reorder(Country,-Price), y = Price, fill = Country))+
+      geom_bar(stat = 'identity')+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  })   
+  # EDA tab - graphs 9
+  EDA9 <- reactive({
+    subset(wine, wine$Country %in% input$search_country_9)
+    subset(wine, wine$Type %in% input$Wine_Type1)
+    
+    
+    
+  })
+  output$graph_9 <- renderPlot({
+    ggplot(data=EDA9(),aes(x=Year,y=Rating, color=Type)) +
+      geom_point()
+  })
+  
+  # EDA tab - graphs 10
+  EDA10 <- reactive({
+    subset(wine, wine$Type %in% input$Wine_Type2)
+    
+  })
+  
+  output$graph_10 <- renderPlot({
+    ggplot(data=EDA10(),aes(x=Year,y = Price, color=Type)) +
+      geom_point()
+  })
+  
+  
+}
+
+shinyApp(ui=ui, server=server)
